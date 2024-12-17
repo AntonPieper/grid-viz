@@ -1,22 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tile Placement Tool</title>
     <style>
-        body { margin: 0; overflow: hidden; }
-        canvas { display: block; background: #f0f0f0; }
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            background: #f0f0f0;
+        }
+
         #toolbox {
             position: fixed;
             bottom: 0;
             left: 0;
             width: 100%;
-            display: flex;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(6em, 1fr));
             justify-content: center;
             background: rgba(0, 0, 0, 0.1);
             padding: 10px;
         }
+
         .tool {
             margin: 5px;
             padding: 10px;
@@ -26,7 +37,11 @@
             text-align: center;
             font-size: 16px;
         }
-        .selected { border: 2px solid blue; }
+
+        .selected {
+            border: 2px solid blue;
+        }
+
         #placement-buttons {
             position: fixed;
             bottom: 60px;
@@ -35,6 +50,7 @@
             display: flex;
             gap: 10px;
         }
+
         #placement-buttons button {
             font-size: 20px;
             padding: 10px;
@@ -44,26 +60,50 @@
         #gridCanvas {
             touch-action: none;
         }
+
+        .color-scale {
+            display: flex;
+            flex-direction: row;
+        }
+        .input {
+            display: flex;
+            flex-direction: column;
+        }
     </style>
 </head>
+
 <body>
     <canvas id="gridCanvas"></canvas>
     <div id="toolbox">
         <div class="tool" data-type="bear_trap" data-size="3">Bear Trap (3x3)</div>
+        <div class="tool" data-type="headquater" data-size="3">Headquater (3x3)</div>
         <div class="tool" data-type="city" data-size="2">City (2x2)</div>
         <div class="tool" data-type="banner" data-size="1">Banner (1x1)</div>
         <div class="tool" data-type="resource" data-size="2">Resource (2x2)</div>
         <div class="tool" data-type="eraser" data-size="1">Eraser</div>
     </div>
-    <div id="nameModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border: 1px solid #ccc; padding: 20px; z-index: 1000;">
+    <div id="nameModal"
+        style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border: 1px solid #ccc; padding: 20px; z-index: 1000;">
         <h3>Configure City Names</h3>
         <textarea id="cityNamesInput" rows="10" cols="30" placeholder="Enter city names, one per line"></textarea>
         <br />
+        <div class="color-scale">
+            <div class="input">
+                <label for="colorMin">Min Color Scale</label>
+                <input id="colorMin" type="number" placeholder="Min Distance">
+            </div>
+            <div class="input">
+                <label for="colorMax">Max Color Scale</label>
+                <input id="colorMax" type="number" placeholder="Max Distance">
+            </div>
+        </div>
         <button id="saveNames">Save</button>
         <button id="closeModal">Close</button>
     </div>
-    <button id="configureNames" style="position: fixed; top: 10px; left: 10px; z-index: 1000;">Configure City Names</button>    
-    <div id="configManager" style="position: fixed; top: 10px; right: 10px; background: white; padding: 10px; border: 1px solid #ccc; z-index: 1000;">
+    <button id="configureNames" style="position: fixed; top: 10px; left: 10px; z-index: 1000;">Configure City
+        Names</button>
+    <div id="configManager"
+        style="position: fixed; top: 10px; right: 10px; background: white; padding: 10px; border: 1px solid #ccc; z-index: 1000;">
         <h3>Configurations</h3>
         <input id="configName" type="text" placeholder="Enter config name" />
         <br /><br />
@@ -74,7 +114,8 @@
         <button id="saveConfig">Save</button>
         <button id="loadConfig">Load</button>
         <button id="deleteConfig">Delete</button>
-    </div>    
+    </div>
     <script src="app.js"></script>
 </body>
+
 </html>

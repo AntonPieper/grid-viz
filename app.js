@@ -20,12 +20,115 @@ let previewTile = null;
 let cityNames = [];
 let nameAssignments = {};
 
+let colorScaleMin = 2; // Default minimum for color scale
+let colorScaleMax = 6; // Default maximum for color scale
+
+const bannerZoneColors = ["rgba(255, 0, 0, 0.2)", "rgba(0, 255, 0, 0.2)", "rgba(0, 0, 255, 0.2)",
+    "rgba(255, 255, 0, 0.2)", "rgba(255, 0, 255, 0.2)", "rgba(0, 255, 255, 0.2)"];
+
+
+function calculateBannerZones(tiles = placedTiles) {
+    const visited = new Set();
+    const zones = [];
+
+    function isWithinZone(x1, y1, x2, y2) {
+        return Math.abs(x1 - x2) <= 1 && Math.abs(y1 - y2) <= 1;
+    }
+
+    function areZonesConnected(zone1, zone2) {
+        for (let key1 of zone1) {
+            const [x1, y1] = key1.split(',').map(Number);
+            for (let key2 of zone2) {
+                const [x2, y2] = key2.split(',').map(Number);
+                if (isWithinZone(x1, y1, x2, y2)) return true;
+            }
+        }
+        return false;
+    }
+
+    function bfs(startTile) {
+        const queue = [startTile];
+        const zone = new Set();
+
+        while (queue.length > 0) {
+            const current = queue.shift();
+            const key = `${current.x},${current.y}`;
+            if (visited.has(key)) continue;
+
+            visited.add(key);
+            zone.add(key);
+
+            // Add all neighbors within the 7x7 radius
+            for (let dx = -3; dx <= 3; dx++) {
+                for (let dy = -3; dy <= 3; dy++) {
+                    const neighborKey = `${current.x + dx},${current.y + dy}`;
+                    if (!visited.has(neighborKey)) {
+                        zone.add(neighborKey);
+                    }
+                }
+            }
+        }
+        return zone;
+    }
+
+    // Generate individual zones
+    const bannerTiles = tiles.filter(t => t.type === "banner");
+    bannerTiles.forEach(tile => {
+        const key = `${tile.x},${tile.y}`;
+        if (!visited.has(key)) {
+            zones.push(bfs(tile));
+        }
+    });
+
+    // Merge connected zones
+    const mergedZones = [];
+    while (zones.length > 0) {
+        const currentZone = zones.pop();
+        let merged = false;
+
+        for (let i = 0; i < mergedZones.length; i++) {
+            if (areZonesConnected(currentZone, mergedZones[i])) {
+                currentZone.forEach(cell => mergedZones[i].add(cell));
+                merged = true;
+                break;
+            }
+        }
+
+        if (!merged) {
+            mergedZones.push(currentZone);
+        }
+    }
+
+    return mergedZones;
+}
+
+
+function removeTileAt(gridX, gridY) {
+    for (let i = 0; i < placedTiles.length; i++) {
+        const tile = placedTiles[i];
+        if (gridX >= tile.x && gridX < tile.x + tile.size &&
+            gridY >= tile.y && gridY < tile.y + tile.size) {
+
+            // Remove tile
+            placedTiles.splice(i, 1);
+            assignCityNames();
+            drawGrid();
+            return;
+        }
+    }
+}
+
+
 // Modal elements
 const modal = document.getElementById("nameModal");
 const nameInput = document.getElementById("cityNamesInput");
 const configureNamesBtn = document.getElementById("configureNames");
 const saveNamesBtn = document.getElementById("saveNames");
 const closeModalBtn = document.getElementById("closeModal");
+
+// New inputs for color scale
+const colorMinInput = document.getElementById("colorMin");
+const colorMaxInput = document.getElementById("colorMax");
 
 // Open modal to configure city names
 configureNamesBtn.addEventListener("click", () => {
@@ -35,6 +138,9 @@ configureNamesBtn.addEventListener("click", () => {
 // Save city names
 saveNamesBtn.addEventListener("click", () => {
     cityNames = nameInput.value.split("\n").filter(name => name.trim() !== "");
+    colorScaleMin = parseFloat(colorMinInput.value) || colorScaleMin;
+    colorScaleMax = parseFloat(colorMaxInput.value) || colorScaleMax;
+
     assignCityNames();
     modal.style.display = "none";
     drawGrid();
@@ -50,45 +156,17 @@ document.querySelectorAll(".tool").forEach(tool => {
     tool.addEventListener("click", () => {
         document.querySelectorAll(".tool").forEach(t => t.classList.remove("selected"));
         tool.classList.add("selected");
+
         selectedTool.type = tool.getAttribute("data-type");
         selectedTool.size = parseInt(tool.getAttribute("data-size"), 10);
-        if (selectedTool.type !== "eraser") enterPlacementMode();
-        else exitPlacementMode();
+
+        if (selectedTool.type !== "eraser") {
+            enterPlacementMode();
+        } else {
+            exitPlacementMode();
+        }
     });
-});
 
-// Mouse click logic
-canvas.addEventListener("click", (e) => {
-    const gridX = Math.floor((e.clientX + offsetX) / gridSize);
-    const gridY = Math.floor((e.clientY + offsetY) / gridSize);
-
-    // Erase tiles
-    if (selectedTool.type === "eraser") {
-        for (let i = 0; i < placedTiles.length; i++) {
-            const tile = placedTiles[i];
-            if (gridX >= tile.x && gridX < tile.x + tile.size &&
-                gridY >= tile.y && gridY < tile.y + tile.size) {
-                placedTiles.splice(i, 1);
-                if (tile.type === "bear_trap") bearTrapPosition = null;
-                assignCityNames();
-                drawGrid();
-                return;
-            }
-        }
-    }
-
-    // Re-enter placement mode
-    if (!isInPlacementMode) {
-        for (let i = 0; i < placedTiles.length; i++) {
-            const tile = placedTiles[i];
-            if (gridX >= tile.x && gridX < tile.x + tile.size &&
-                gridY >= tile.y && gridY < tile.y + tile.size) {
-                selectedTool = { type: tile.type, size: tile.size };
-                jumpToTile(tile, i);
-                return;
-            }
-        }
-    }
 });
 
 // Enter placement mode
@@ -102,6 +180,7 @@ function enterPlacementMode() {
 // Jump to the clicked tile for editing
 function jumpToTile(tile, index) {
     placedTiles.splice(index, 1);
+
     offsetX = tile.x * gridSize - canvas.width / 2 + (tile.size * gridSize) / 2;
     offsetY = tile.y * gridSize - canvas.height / 2 + (tile.size * gridSize) / 2;
     previewTile = { ...tile };
@@ -109,6 +188,7 @@ function jumpToTile(tile, index) {
     drawGrid();
     renderPlacementButtons();
 }
+
 
 // Update the preview tile
 function updatePreviewTile() {
@@ -123,7 +203,26 @@ function updatePreviewTile() {
     };
 }
 
-// Confirm placement
+function isSpaceFree(tile) {
+    for (let placed of placedTiles) {
+        if (
+            tile.x < placed.x + placed.size &&
+            tile.x + tile.size > placed.x &&
+            tile.y < placed.y + placed.size &&
+            tile.y + tile.size > placed.y
+        ) {
+            return false; // Overlap detected
+        }
+    }
+    return true;
+}
+
+function isPlacementValid(tile) {
+    if (!isSpaceFree(tile)) return false;
+
+    return true;
+}
+
 function confirmPlacement() {
     if (previewTile) {
         if (previewTile.type === "bear_trap") {
@@ -134,6 +233,8 @@ function confirmPlacement() {
         exitPlacementMode();
     }
 }
+
+
 
 // DOM elements
 const configNameInput = document.getElementById("configName");
@@ -191,15 +292,25 @@ function loadConfiguration(configName) {
         placedTiles.push(...JSON.parse(config.placedTiles));
         cityNames = config.cityNames;
 
+        // Update textarea to reflect city names
+        nameInput.value = cityNames.join("\n");
+
         // Recalculate bear trap position if necessary
         const bearTrap = placedTiles.find(tile => tile.type === "bear_trap");
         bearTrapPosition = bearTrap ? { x: bearTrap.x + 1.5, y: bearTrap.y + 1.5 } : null;
 
+        // Center view on the bear trap
+        if (bearTrapPosition) {
+            offsetX = (bearTrapPosition.x - canvas.width / (2 * gridSize)) * gridSize;
+            offsetY = (bearTrapPosition.y - canvas.height / (2 * gridSize)) * gridSize;
+        }
+
         assignCityNames();
         drawGrid();
-        alert(`Configuration "${configName}" loaded successfully!`);
     }
 }
+
+
 
 // Delete a configuration
 deleteConfigBtn.addEventListener("click", () => {
@@ -243,15 +354,31 @@ function exitPlacementMode() {
     drawGrid();
 }
 
-// Draw the grid
+let offscreenCanvas = null; // Persistent offscreen canvas
+let offscreenCtx = null;
+
+// Initialize or resize the offscreen canvas
+function initializeOffscreenCanvas() {
+    if (!offscreenCanvas) {
+        offscreenCanvas = document.createElement("canvas");
+        offscreenCtx = offscreenCanvas.getContext("2d");
+    }
+    if (offscreenCanvas.width !== canvas.width || offscreenCanvas.height !== canvas.height) {
+        offscreenCanvas.width = canvas.width;
+        offscreenCanvas.height = canvas.height;
+    }
+}
+
 function drawGrid() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Calculate grid bounds
     const startCol = Math.floor(offsetX / gridSize);
     const startRow = Math.floor(offsetY / gridSize);
     const endCol = startCol + Math.ceil(canvas.width / gridSize) + 1;
     const endRow = startRow + Math.ceil(canvas.height / gridSize) + 1;
 
+    // Draw gridlines
     for (let col = startCol; col < endCol; col++) {
         const x = col * gridSize - offsetX;
         ctx.beginPath();
@@ -269,45 +396,126 @@ function drawGrid() {
         ctx.stroke();
     }
 
-    placedTiles.forEach(tile => drawTile(tile));
+    // Combine placedTiles with the previewTile
+    const tempTiles = [...placedTiles];
+    if (previewTile && previewTile.type === "banner") {
+        tempTiles.push(previewTile);
+    }
 
+    // Safely calculate zones
+    const tempZones = calculateBannerZones(tempTiles);
+
+    // Draw banner zones
+    initializeOffscreenCanvas();
+    offscreenCtx.clearRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+
+    const zoneBounds = new Set(); // To track which grid cells are already drawn
+
+    tempZones.forEach((zone, index) => {
+        const color = bannerZoneColors[index % bannerZoneColors.length];
+        offscreenCtx.fillStyle = color;
+
+        zone.forEach(key => {
+            const [zoneX, zoneY] = key.split(",").map(Number);
+            const x = zoneX * gridSize - offsetX;
+            const y = zoneY * gridSize - offsetY;
+            const cellKey = `${x},${y}`;
+
+            // Draw only if this grid cell has not been drawn yet
+            if (!zoneBounds.has(cellKey)) {
+                zoneBounds.add(cellKey);
+                offscreenCtx.fillRect(x, y, gridSize, gridSize);
+            }
+        });
+    });
+
+    // Draw placed tiles
+    placedTiles.forEach(tile => drawTile(tile, false, tempZones));
+
+    ctx.drawImage(offscreenCanvas, 0, 0);
+
+
+    // Draw preview tile
     if (isInPlacementMode) {
-        updatePreviewTile();
-        drawTile(previewTile, true);
+        drawTile(previewTile, true, tempZones);
+        updateConfirmButton();
     }
 }
 
 // Draw a tile
-function drawTile(tile, isPreview = false) {
+function drawTile(tile, isPreview, bannerZones) {
     const x = tile.x * gridSize - offsetX;
     const y = tile.y * gridSize - offsetY;
     const size = tile.size * gridSize;
 
-    let fillColor = isPreview ? "rgba(0, 0, 255, 0.3)" : getTileColor(tile.type);
+    const territoryColor = findTerritoryColor(tile, bannerZones); // Territory outline color
+    const fullyInside = isTileFullyInsideTerritory(tile, bannerZones);
 
-    if (tile.type === "city" && bearTrapPosition) {
-        const cityCenterX = tile.x + 1;
-        const cityCenterY = tile.y + 1;
-        const distance = calculateDistance(cityCenterX, cityCenterY, bearTrapPosition.x, bearTrapPosition.y);
-        fillColor = interpolateColor([0, 255, 0], [255, 0, 0], 2, 6, distance);
+    // Determine outline width
+    const lineWidth = fullyInside ? 4 : 2;
 
-        ctx.fillStyle = fillColor;
-        ctx.fillRect(x, y, size, size);
-        ctx.strokeStyle = isPreview ? "blue" : "black";
-        ctx.strokeRect(x, y, size, size);
+    // Draw the tile
+    ctx.fillStyle = isPreview ? "rgba(0, 0, 255, 0.3)" : getTileColor(tile.type);
+    ctx.fillRect(x, y, size, size);
 
-        ctx.fillStyle = "black";
-        ctx.font = "14px Arial";
-        const name = nameAssignments[`${tile.x},${tile.y}`] || "";
-        ctx.fillText(`D: ${distance.toFixed(1)} ${name}`, x + 5, y + size / 2);
-        return;
+    // Draw outline matching the territory color
+    ctx.strokeStyle = territoryColor || "black";
+    ctx.lineWidth = lineWidth;
+    ctx.strokeRect(x, y, size, size);
+
+    // Draw a cross if tile is not fully inside a territory
+    if (!fullyInside) {
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + size, y + size);
+        ctx.moveTo(x + size, y);
+        ctx.lineTo(x, y + size);
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        ctx.stroke();
     }
 
-    ctx.fillStyle = fillColor;
-    ctx.fillRect(x, y, size, size);
-    ctx.strokeStyle = isPreview ? "blue" : "black";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, size, size);
+    // Draw the label
+    ctx.fillStyle = "black";
+    ctx.font = "16px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const label = getTileLabel(tile);
+    ctx.fillText(label, x + size / 2, y + size / 2);
+}
+
+function findTerritoryColor(tile, bannerZones) {
+    for (let i = 0; i < bannerZones.length; i++) {
+        const zone = bannerZones[i];
+        const key = `${tile.x},${tile.y}`;
+        if (zone.has(key)) {
+            return bannerZoneColors[i % bannerZoneColors.length].replace("0.2", "1.0");
+        }
+    }
+    return null;
+}
+
+
+function isTileFullyInsideTerritory(tile, bannerZones) {
+    for (let dx = 0; dx < tile.size; dx++) {
+        for (let dy = 0; dy < tile.size; dy++) {
+            const key = `${tile.x + dx},${tile.y + dy}`;
+            const isInAnyZone = bannerZones.some(zone => zone.has(key));
+            if (!isInAnyZone) return false; // At least one grid part is not inside a territory
+        }
+    }
+    return true;
+}
+
+
+function getTileLabel(tile) {
+    switch (tile.type) {
+        case "city": return nameAssignments[`${tile.x},${tile.y}`] || "City";
+        case "banner": return "Banner";
+        case "bear_trap": return "Bear Trap";
+        case "resource": return "Resource";
+        default: return tile.type.charAt(0).toUpperCase() + tile.type.slice(1);
+    }
 }
 
 function getTileColor(type) {
@@ -333,18 +541,32 @@ function calculateDistance(x1, y1, x2, y2) {
 }
 
 function renderPlacementButtons() {
+    // Remove existing placement buttons first
+    clearPlacementButtons();
+
     const container = document.createElement("div");
     container.id = "placement-buttons";
+    container.style.position = "absolute";
 
     const confirmButton = document.createElement("button");
+    confirmButton.id = "confirm-btn";
     confirmButton.textContent = "✓";
     confirmButton.style.color = "green";
-    confirmButton.onclick = confirmPlacement;
+    confirmButton.disabled = !isPlacementValid(previewTile); // Validate placement
+
+    confirmButton.addEventListener("click", () => {
+        confirmPlacement();
+        clearPlacementButtons(); // Remove buttons after confirming
+    });
 
     const cancelButton = document.createElement("button");
     cancelButton.textContent = "X";
     cancelButton.style.color = "red";
-    cancelButton.onclick = exitPlacementMode;
+
+    cancelButton.addEventListener("click", () => {
+        exitPlacementMode();
+        clearPlacementButtons(); // Remove buttons after canceling
+    });
 
     container.appendChild(confirmButton);
     container.appendChild(cancelButton);
@@ -352,25 +574,80 @@ function renderPlacementButtons() {
 }
 
 function clearPlacementButtons() {
-    const container = document.getElementById("placement-buttons");
-    if (container) container.remove();
+    const existingContainer = document.getElementById("placement-buttons");
+    if (existingContainer) {
+        existingContainer.remove(); // Remove the button container
+    }
 }
+
+function updateConfirmButton() {
+    const confirmButton = document.getElementById("confirm-btn");
+    if (confirmButton) {
+        confirmButton.disabled = !isPlacementValid(previewTile);
+        confirmButton.style.opacity = confirmButton.disabled ? "0.5" : "1.0";
+        confirmButton.style.cursor = confirmButton.disabled ? "not-allowed" : "pointer";
+    }
+}
+
+const dragThreshold = 20; // Threshold in pixels to distinguish drag from a click
+let dragDistance = 0; // Track the distance moved
 
 canvas.addEventListener("pointerdown", (e) => {
     isDragging = true;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
+    dragDistance = 0; // Reset drag distance
 });
+
 canvas.addEventListener("pointermove", (e) => {
     if (isDragging) {
-        offsetX -= e.clientX - dragStartX;
-        offsetY -= e.clientY - dragStartY;
+        const deltaX = e.clientX - dragStartX;
+        const deltaY = e.clientY - dragStartY;
+        dragDistance += Math.hypot(deltaX, deltaY); // Calculate total drag distance
+
+        offsetX -= deltaX;
+        offsetY -= deltaY;
         dragStartX = e.clientX;
         dragStartY = e.clientY;
+        if (isInPlacementMode) {
+            updatePreviewTile(); // Dynamically update the preview tile's position
+        }
         drawGrid();
     }
 });
-canvas.addEventListener("pointerup", () => isDragging = false);
+
+canvas.addEventListener("pointerup", (e) => {
+    isDragging = false;
+    // If drag distance is small enough, treat it as a click (edit mode)
+    if (dragDistance < dragThreshold) {
+        handleClick(e);
+    }
+});
+
+function handleClick(e) {
+    const gridX = Math.floor((e.clientX + offsetX) / gridSize);
+    const gridY = Math.floor((e.clientY + offsetY) / gridSize);
+
+    // Erase tiles
+    if (selectedTool.type === "eraser") {
+        removeTileAt(gridX, gridY);
+        return;
+    }
+
+    // Re-enter placement mode
+    if (!isInPlacementMode) {
+        for (let i = 0; i < placedTiles.length; i++) {
+            const tile = placedTiles[i];
+            if (gridX >= tile.x && gridX < tile.x + tile.size &&
+                gridY >= tile.y && gridY < tile.y + tile.size) {
+                selectedTool = { type: tile.type, size: tile.size };
+                jumpToTile(tile, i);
+                return;
+            }
+        }
+    }
+}
+
 canvas.addEventListener("pointerout", () => isDragging = false);
 
 window.addEventListener("resize", () => {
