@@ -31,75 +31,64 @@ function calculateBannerZones(tiles = placedTiles) {
     const visited = new Set();
     const zones = [];
 
-    function isWithinZone(x1, y1, x2, y2) {
-        return Math.abs(x1 - x2) <= 1 && Math.abs(y1 - y2) <= 1;
+    // Helper to generate a unique key for a coordinate
+    function getKey(x, y) {
+        return `${x},${y}`;
     }
 
-    function areZonesConnected(zone1, zone2) {
-        for (let key1 of zone1) {
-            const [x1, y1] = key1.split(',').map(Number);
-            for (let key2 of zone2) {
-                const [x2, y2] = key2.split(',').map(Number);
-                if (isWithinZone(x1, y1, x2, y2)) return true;
-            }
-        }
-        return false;
-    }
-
+    // Perform BFS to create a zone
     function bfs(startTile) {
-        const queue = [startTile];
+        const queue = [{ x: startTile.x, y: startTile.y }];
         const zone = new Set();
 
         while (queue.length > 0) {
-            const current = queue.shift();
-            const key = `${current.x},${current.y}`;
+            const { x, y } = queue.shift();
+            const key = getKey(x, y);
+
+            // Skip if already visited
             if (visited.has(key)) continue;
 
             visited.add(key);
             zone.add(key);
-
-            // Add all neighbors within the 7x7 radius
+            // Add neighbors within a 7x7 box
             for (let dx = -3; dx <= 3; dx++) {
                 for (let dy = -3; dy <= 3; dy++) {
-                    const neighborKey = `${current.x + dx},${current.y + dy}`;
-                    if (!visited.has(neighborKey)) {
-                        zone.add(neighborKey);
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    const neighborKey = getKey(nx, ny);
+                    zone.add(neighborKey);
+                }
+            }
+
+            // Add neighbors within a 7x7 box
+            for (let dx = -7; dx <= 7; dx++) {
+                for (let dy = -7; dy <= 7; dy++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    const neighborKey = getKey(nx, ny);
+
+                    // Only enqueue neighbors if they are banner tiles and not visited
+                    if (!visited.has(neighborKey) && tiles.some(t => t.x === nx && t.y === ny && t.type === "banner")) {
+                        queue.push({ x: nx, y: ny });
                     }
                 }
             }
         }
+
         return zone;
     }
 
-    // Generate individual zones
+    // Process all banner tiles
     const bannerTiles = tiles.filter(t => t.type === "banner");
+
     bannerTiles.forEach(tile => {
-        const key = `${tile.x},${tile.y}`;
+        const key = getKey(tile.x, tile.y);
         if (!visited.has(key)) {
             zones.push(bfs(tile));
         }
     });
 
-    // Merge connected zones
-    const mergedZones = [];
-    while (zones.length > 0) {
-        const currentZone = zones.pop();
-        let merged = false;
-
-        for (let i = 0; i < mergedZones.length; i++) {
-            if (areZonesConnected(currentZone, mergedZones[i])) {
-                currentZone.forEach(cell => mergedZones[i].add(cell));
-                merged = true;
-                break;
-            }
-        }
-
-        if (!merged) {
-            mergedZones.push(currentZone);
-        }
-    }
-
-    return mergedZones;
+    return zones;
 }
 
 
@@ -448,22 +437,36 @@ function drawTile(tile, isPreview, bannerZones) {
     const y = tile.y * gridSize - offsetY;
     const size = tile.size * gridSize;
 
-    const territoryColor = findTerritoryColor(tile, bannerZones); // Territory outline color
-    const fullyInside = isTileFullyInsideTerritory(tile, bannerZones);
+    let fillColor = getTileColor(tile.type);
+    let distanceText = "";
+    let textColor = "black";
 
-    // Determine outline width
-    const lineWidth = fullyInside ? 4 : 2;
+    // Handle city-specific distance-based color scale
+    if (tile.type === "city" && bearTrapPosition) {
+        const cityCenterX = tile.x + tile.size / 2;
+        const cityCenterY = tile.y + tile.size / 2;
+        const distance = calculateDistance(cityCenterX, cityCenterY, bearTrapPosition.x, bearTrapPosition.y);
+        const minColor = [0, 255, 0]; // Green at min distance
+        const maxColor = [255, 0, 0]; // Red at max distance
 
-    // Draw the tile
-    ctx.fillStyle = isPreview ? "rgba(0, 0, 255, 0.3)" : getTileColor(tile.type);
+        fillColor = interpolateColor(minColor, maxColor, colorScaleMin, colorScaleMax, distance);
+        distanceText = `${distance.toFixed(2)} tiles`;
+    }
+
+    // Draw the tile fill
+    ctx.fillStyle = isPreview ? "rgba(0, 0, 255, 0.3)" : fillColor;
     ctx.fillRect(x, y, size, size);
 
-    // Draw outline matching the territory color
+    // Territory-based colors and crossing out
+    const territoryColor = findTerritoryColor(tile, bannerZones); // Get territory color
+    const fullyInside = isTileFullyInsideTerritory(tile, bannerZones);
+
+    // Draw the territory outline
     ctx.strokeStyle = territoryColor || "black";
-    ctx.lineWidth = lineWidth;
+    ctx.lineWidth = fullyInside ? 4 : 2;
     ctx.strokeRect(x, y, size, size);
 
-    // Draw a cross if tile is not fully inside a territory
+    // Draw red "cross-out" if tile is partially outside a territory
     if (!fullyInside) {
         ctx.beginPath();
         ctx.moveTo(x, y);
@@ -475,14 +478,22 @@ function drawTile(tile, isPreview, bannerZones) {
         ctx.stroke();
     }
 
-    // Draw the label
-    ctx.fillStyle = "black";
+    // Add city name and distance label
+    ctx.fillStyle = textColor;
     ctx.font = "16px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+
     const label = getTileLabel(tile);
-    ctx.fillText(label, x + size / 2, y + size / 2);
+    if (tile.type === "city") {
+        ctx.fillText(label, x + size / 2, y + size / 2 - 10); // City name above center
+        ctx.font = "12px Arial";
+        ctx.fillText(distanceText, x + size / 2, y + size / 2 + 10); // Distance below center
+    } else {
+        ctx.fillText(label, x + size / 2, y + size / 2); // Default tile label
+    }
 }
+
 
 function findTerritoryColor(tile, bannerZones) {
     for (let i = 0; i < bannerZones.length; i++) {
