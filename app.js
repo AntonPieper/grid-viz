@@ -367,6 +367,8 @@ function drawGrid() {
     const endCol = startCol + Math.ceil(canvas.width / gridSize) + 1;
     const endRow = startRow + Math.ceil(canvas.height / gridSize) + 1;
 
+    ctx.lineWidth = 1;
+
     // Draw gridlines
     for (let col = startCol; col < endCol; col++) {
         const x = col * gridSize - offsetX;
