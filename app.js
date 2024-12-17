@@ -418,10 +418,11 @@ function drawGrid() {
         });
     });
 
+    ctx.drawImage(offscreenCanvas, 0, 0);
+
     // Draw placed tiles
     placedTiles.forEach(tile => drawTile(tile, false, tempZones));
 
-    ctx.drawImage(offscreenCanvas, 0, 0);
 
 
     // Draw preview tile
