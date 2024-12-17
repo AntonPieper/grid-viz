@@ -356,12 +356,12 @@ function clearPlacementButtons() {
     if (container) container.remove();
 }
 
-canvas.addEventListener("mousedown", (e) => {
+canvas.addEventListener("pointerdown", (e) => {
     isDragging = true;
     dragStartX = e.clientX;
     dragStartY = e.clientY;
 });
-canvas.addEventListener("mousemove", (e) => {
+canvas.addEventListener("pointermove", (e) => {
     if (isDragging) {
         offsetX -= e.clientX - dragStartX;
         offsetY -= e.clientY - dragStartY;
@@ -370,8 +370,8 @@ canvas.addEventListener("mousemove", (e) => {
         drawGrid();
     }
 });
-canvas.addEventListener("mouseup", () => isDragging = false);
-canvas.addEventListener("mouseout", () => isDragging = false);
+canvas.addEventListener("pointerup", () => isDragging = false);
+canvas.addEventListener("pointerout", () => isDragging = false);
 
 window.addEventListener("resize", () => {
     canvas.width = window.innerWidth;
