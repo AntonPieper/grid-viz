@@ -5,18 +5,18 @@ export class PixiApplicationManager {
 
   constructor() {
     this.app = new Application();
-    document.body.appendChild(this.app.canvas);
 
     window.addEventListener("resize", () => this.onResize());
   }
 
-  init() {
-    return this.app.init({
+  async init(): Promise<void> {
+    await this.app.init({
       width: window.innerWidth,
       height: window.innerHeight,
       backgroundColor: 0xf0f0f0,
       antialias: true,
     });
+    document.body.appendChild(this.app.canvas);
   }
 
   private onResize(): void {

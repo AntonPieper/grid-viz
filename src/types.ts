@@ -1,3 +1,5 @@
+export type RgbColor = { r: number; g: number; b: number };
+
 export type TileType =
   | "bear_trap"
   | "headquarter"

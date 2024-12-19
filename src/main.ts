@@ -1,3 +1,4 @@
+// src/main.ts
 import {
   configureNamesBtn,
   saveConfigBtn,
@@ -9,11 +10,12 @@ import { PlacementControls } from "./PlacementControls";
 import { ConfigurationManager } from "./ConfigurationManager";
 import { CityNameAssigner } from "./CityNameAssigner";
 import { ModalManager } from "./ModalManager";
-import { AppState } from "./appState";
-import { Controller } from "./controller";
+import { AppState } from "./AppState";
+import { Controller } from "./Controller";
 import { Renderer } from "./Renderer";
 import { PixiApplicationManager } from "./PixiApplicationManager";
 
+// Initialize application and managers
 const state = new AppState();
 const cityNameAssigner = new CityNameAssigner();
 const configurationManager = new ConfigurationManager();
@@ -29,16 +31,19 @@ const pixiAppManager = new PixiApplicationManager();
 await pixiAppManager.init();
 const pixiApp = pixiAppManager.getApp();
 
+// Create toolbox and placement controls
 const toolbox = new Toolbox("toolbox", (tool) => controller.onToolSelect(tool));
 const placementControls = new PlacementControls();
 
-// The Renderer now takes a Pixi container (stage)
+// Create renderer (Pixi)
 const renderer = new Renderer(pixiApp.stage);
 
+// Define render function
 function render() {
-  renderer.render(
+  renderer.updateScene(
     state.offset.x,
     state.offset.y,
+    controller.cameraScale, // Pass current camera scale
     state.placedTiles,
     state.previewTile,
     state.bearTrapPosition,
@@ -47,12 +52,11 @@ function render() {
     pixiApp.renderer.height
   );
   if (state.isInPlacementMode) {
-    placementControls.updateConfirmState(
-      state.previewTile !== null && configurationManager !== null
-    );
+    placementControls.updateConfirmState(state.previewTile !== null);
   }
 }
 
+// Initialize Controller with camera container
 const controller = new Controller(
   state,
   cityNameAssigner,
@@ -60,38 +64,42 @@ const controller = new Controller(
   modalManager,
   toolbox,
   placementControls,
-  // The notion of "canvas" is replaced by the pixiApp.view but controller doesn't need direct canvas now
-  // We only need screen dimensions for calculations, which we get from pixiApp.renderer
-  // We'll pass a dummy element since controller only uses offset and the old references:
-  pixiApp.view as HTMLCanvasElement,
-  render
+  pixiApp.view, // Pass the canvas
+  render,
+  renderer.getCameraContainer() // Pass cameraContainer
 );
 
+// UI events
 configureNamesBtn.addEventListener("click", () => {
   modalManager.show();
 });
-
 saveConfigBtn.addEventListener("click", () => controller.saveConfiguration());
 loadConfigBtn.addEventListener("click", () => controller.loadConfiguration());
 deleteConfigBtn.addEventListener("click", () =>
   controller.deleteConfiguration()
 );
 
-// Pointer events on pixi's view
-// Convert them to global events for simplicity
-pixiApp.view.addEventListener("pointerdown", (e) =>
-  controller.handlePointerDown(e)
-);
-pixiApp.view.addEventListener("pointermove", (e) =>
-  controller.handlePointerMove(e)
-);
-pixiApp.view.addEventListener("pointerup", (e) =>
-  controller.handlePointerUp(e)
-);
+// Enable Pixi interaction
+pixiApp.stage.interactive = true; // Ensure stage is interactive
+pixiApp.stage.hitArea = pixiApp.renderer.screen; // Set hit area to cover the screen
+
+// Pixi pointer events
+pixiApp.stage.on("pointerdown", (e) => controller.onPointerDown(e));
+pixiApp.stage.on("pointermove", (e) => controller.onPointerMove(e));
+pixiApp.stage.on("pointerup", (e) => controller.onPointerUp(e));
+pixiApp.stage.on("pointerupoutside", (e) => controller.onPointerUp(e));
+
+// Implement zooming via mouse wheel
 pixiApp.view.addEventListener(
-  "pointerout",
-  () => (state.dragState.isDragging = false)
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    const zoomDelta = e.deltaY > 0 ? -0.1 : 0.1;
+    controller.handleZoom(zoomDelta);
+  },
+  { passive: false }
 );
 
+// Initial refresh and render
 controller.refreshConfigList();
 render();

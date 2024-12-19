@@ -1,4 +1,5 @@
-import { AppState } from "./appState";
+// src/Controller.ts
+import { AppState } from "./AppState";
 import { ConfigurationManager } from "./ConfigurationManager";
 import { CityNameAssigner } from "./CityNameAssigner";
 import { ModalManager } from "./ModalManager";
@@ -9,16 +10,15 @@ import {
   finalizeTilePlacement,
   updatePlacementPreview,
 } from "./placement";
-import {
-  handlePointerDown,
-  handlePointerMove,
-  handlePointerUp,
-} from "./inputHandlers";
-import { Tile, TileType } from "./types";
-import { nameInput, configNameInput, configList } from "./domElements";
+import { Tile, TileType, Position, NameAssignments } from "./types";
 import { GRID_SIZE } from "./constants";
+import { Container, FederatedPointerEvent } from "pixi.js";
 
 export class Controller {
+  private dragging = false;
+  private lastPointerPos: { x: number; y: number } = { x: 0, y: 0 };
+  private cameraScale: number = 1; // Initialize scale
+
   constructor(
     private state: AppState,
     private cityNameAssigner: CityNameAssigner,
@@ -26,8 +26,9 @@ export class Controller {
     private modalManager: ModalManager,
     private toolbox: Toolbox,
     private placementControls: PlacementControls,
-    private canvas: HTMLCanvasElement,
-    private renderCallback: () => void
+    private view: HTMLCanvasElement,
+    private renderCallback: () => void,
+    private cameraContainer: Container // Camera container from Renderer
   ) {}
 
   onToolSelect = (toolSelected: { type: TileType | null; size: number }) => {
@@ -45,7 +46,6 @@ export class Controller {
     colorMax: number
   ) => {
     this.state.cityNames = cityNames;
-    // colorMin and colorMax can be stored if needed for further logic
     this.updateNameAssignments();
     this.renderCallback();
   };
@@ -54,9 +54,10 @@ export class Controller {
     this.state.isInPlacementMode = true;
     this.state.previewTile = updatePlacementPreview(
       this.state.selectedTool,
-      this.canvas,
+      this.view,
       this.state.offset.x,
-      this.state.offset.y
+      this.state.offset.y,
+      this.cameraScale // Pass scale
     );
     this.renderCallback();
     this.placementControls.show(
@@ -81,10 +82,9 @@ export class Controller {
       finalizeTilePlacement(this.state.previewTile, this.state.placedTiles, {
         current: this.state.bearTrapPosition,
       });
-      this.state.cityNames = nameInput.value
-        .split("\n")
-        .map((name) => name.trim())
-        .filter((name) => name !== "");
+      this.state.cityNames = this.state.cityNames.filter(
+        (name) => name.trim() !== ""
+      );
       this.updateNameAssignments();
       this.renderCallback();
       this.cancelPlacementMode();
@@ -93,10 +93,12 @@ export class Controller {
 
   jumpToTileForEditing(tile: Tile, index: number): void {
     this.state.placedTiles.splice(index, 1);
+    const width = this.view.width;
+    const height = this.view.height;
     this.state.offset.x =
-      tile.x * GRID_SIZE - this.canvas.width / 2 + (tile.size * GRID_SIZE) / 2;
+      tile.x * GRID_SIZE - width / 2 + (tile.size * GRID_SIZE) / 2;
     this.state.offset.y =
-      tile.y * GRID_SIZE - this.canvas.height / 2 + (tile.size * GRID_SIZE) / 2;
+      tile.y * GRID_SIZE - height / 2 + (tile.size * GRID_SIZE) / 2;
     this.state.previewTile = { ...tile };
     this.state.isInPlacementMode = true;
     this.renderCallback();
@@ -125,7 +127,9 @@ export class Controller {
   }
 
   saveConfiguration(): void {
-    const configName = configNameInput.value.trim();
+    const configName = (
+      document.getElementById("configName") as HTMLInputElement
+    ).value.trim();
     if (!configName) {
       alert("Please enter a configuration name.");
       return;
@@ -140,6 +144,9 @@ export class Controller {
   }
 
   loadConfiguration(): void {
+    const configList = document.getElementById(
+      "configList"
+    ) as HTMLSelectElement;
     const selectedConfig = configList.value;
     if (!selectedConfig) {
       alert("Please select a configuration to load.");
@@ -157,24 +164,27 @@ export class Controller {
         ? { x: bearTrap.x + 1.5, y: bearTrap.y + 1.5 }
         : null;
 
+      const width = this.view.width;
+      const height = this.view.height;
       if (this.state.bearTrapPosition) {
         this.state.offset.x =
-          (this.state.bearTrapPosition.x -
-            this.canvas.width / (2 * GRID_SIZE)) *
-          GRID_SIZE;
+          (this.state.bearTrapPosition.x - width / (2 * GRID_SIZE)) * GRID_SIZE;
         this.state.offset.y =
-          (this.state.bearTrapPosition.y -
-            this.canvas.height / (2 * GRID_SIZE)) *
+          (this.state.bearTrapPosition.y - height / (2 * GRID_SIZE)) *
           GRID_SIZE;
       }
 
-      nameInput.value = this.state.cityNames.join("\n");
+      (document.getElementById("cityNamesInput") as HTMLTextAreaElement).value =
+        this.state.cityNames.join("\n");
       this.updateNameAssignments();
       this.renderCallback();
     }
   }
 
   deleteConfiguration(): void {
+    const configList = document.getElementById(
+      "configList"
+    ) as HTMLSelectElement;
     const selectedConfig = configList.value;
     if (!selectedConfig) {
       alert("Please select a configuration to delete.");
@@ -186,53 +196,89 @@ export class Controller {
   }
 
   refreshConfigList(): void {
+    const configList = document.getElementById(
+      "configList"
+    ) as HTMLSelectElement;
     configList.innerHTML =
       '<option value="">-- Select Configuration --</option>';
     const configs = this.configurationManager.listConfigurations();
-    for (const name of configs) {
+    configs.forEach((name) => {
       const option = document.createElement("option");
       option.value = name;
       option.textContent = name;
       configList.appendChild(option);
+    });
+  }
+
+  // Pixi pointer events
+  onPointerDown(e: FederatedPointerEvent): void {
+    this.dragging = true;
+    const globalPos = e.data.global;
+    this.lastPointerPos = { x: globalPos.x, y: globalPos.y };
+    this.state.dragState.dragDistance = 0;
+  }
+
+  onPointerMove(e: FederatedPointerEvent): void {
+    if (this.dragging) {
+      const globalPos = e.data.global;
+      const deltaX = globalPos.x - this.lastPointerPos.x;
+      const deltaY = globalPos.y - this.lastPointerPos.y;
+
+      // Update offset based on camera scale
+      this.state.offset.x -= deltaX / this.cameraScale;
+      this.state.offset.y -= deltaY / this.cameraScale;
+
+      this.lastPointerPos = { x: globalPos.x, y: globalPos.y };
+
+      if (this.state.isInPlacementMode) {
+        this.updatePreviewTilePosition();
+      }
+
+      this.renderCallback();
     }
   }
 
-  handlePointerDown(e: PointerEvent): void {
-    handlePointerDown(e, this.state.dragState);
-  }
+  onPointerUp(e: FederatedPointerEvent): void {
+    if (this.dragging) {
+      this.dragging = false;
+      if (this.state.dragState.dragDistance < this.state.dragThreshold) {
+        // A click occurred
+        const localPos = e.data.getLocalPosition(this.cameraContainer);
+        const gridX = Math.floor(localPos.x / GRID_SIZE);
+        const gridY = Math.floor(localPos.y / GRID_SIZE);
 
-  handlePointerMove(e: PointerEvent): void {
-    handlePointerMove(
-      e,
-      this.state.dragState,
-      this.state.offset,
-      () => this.renderCallback(),
-      () => this.updatePreviewTilePosition(),
-      this.state.isInPlacementMode
-    );
-  }
+        if (this.state.selectedTool.type === "eraser") {
+          this.removeTileAt(gridX, gridY);
+          return;
+        }
 
-  handlePointerUp(e: PointerEvent): void {
-    handlePointerUp(
-      e,
-      this.state.dragState,
-      this.state.dragThreshold,
-      this.state.offset,
-      this.state.selectedTool,
-      this.state.placedTiles,
-      this.state.isInPlacementMode,
-      (tile: Tile, index: number) => this.jumpToTileForEditing(tile, index),
-      (gx: number, gy: number) => this.removeTileAt(gx, gy)
-    );
+        if (!this.state.isInPlacementMode) {
+          // Check if clicked on an existing tile
+          for (let i = 0; i < this.state.placedTiles.length; i++) {
+            const tile = this.state.placedTiles[i];
+            if (
+              gridX >= tile.x &&
+              gridX < tile.x + tile.size &&
+              gridY >= tile.y &&
+              gridY < tile.y + tile.size
+            ) {
+              this.jumpToTileForEditing(tile, i);
+              return;
+            }
+          }
+        }
+      }
+    }
   }
 
   updatePreviewTilePosition(): void {
     if (this.state.isInPlacementMode) {
       this.state.previewTile = updatePlacementPreview(
         this.state.selectedTool,
-        this.canvas,
+        this.view,
         this.state.offset.x,
-        this.state.offset.y
+        this.state.offset.y,
+        this.cameraScale // Pass scale
       );
       this.renderCallback();
     }
@@ -244,5 +290,16 @@ export class Controller {
       this.state.cityNames,
       this.state.bearTrapPosition
     );
+  }
+
+  /**
+   * Implement zoom functionality by adjusting cameraScale and applying to cameraContainer.
+   */
+  handleZoom(delta: number): void {
+    const newScale = Math.min(Math.max(this.cameraScale + delta, 0.5), 3); // Clamp between 0.5x and 3x
+    if (newScale !== this.cameraScale) {
+      this.cameraScale = newScale;
+      this.renderCallback();
+    }
   }
 }

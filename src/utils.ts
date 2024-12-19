@@ -8,8 +8,8 @@ export function calculateDistance(
 }
 
 export function interpolateColor(
-  minColor: [number, number, number],
-  maxColor: [number, number, number],
+  minColor: RgbColor,
+  maxColor: RgbColor,
   minDist: number,
   maxDist: number,
   distance: number

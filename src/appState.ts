@@ -1,5 +1,5 @@
+// src/AppState.ts
 import { Tile, SelectedTool, Position, NameAssignments } from "./types";
-import { DragState } from "./inputHandlers";
 
 export class AppState {
   placedTiles: Tile[] = [];
@@ -10,7 +10,13 @@ export class AppState {
   isInPlacementMode: boolean = false;
   previewTile: Tile | null = null;
   offset: { x: number; y: number } = { x: 0, y: 0 };
-  dragState: DragState = {
+  cameraScale: number = 1; // Tracks current zoom level
+  dragState: {
+    isDragging: boolean;
+    dragStartX: number;
+    dragStartY: number;
+    dragDistance: number;
+  } = {
     isDragging: false,
     dragStartX: 0,
     dragStartY: 0,

@@ -3,17 +3,22 @@ import { GRID_SIZE } from "./constants";
 
 export function updatePlacementPreview(
   selectedTool: SelectedTool,
-  canvas: HTMLCanvasElement,
+  view: HTMLCanvasElement,
   offsetX: number,
-  offsetY: number
+  offsetY: number,
+  scale: number
 ): Tile | null {
   if (!selectedTool.type) return null;
 
+  // Calculate world center based on scale
+  const worldCenterX = view.width / 2 / scale + offsetX;
+  const worldCenterY = view.height / 2 / scale + offsetY;
+
   const gridCenterX = Math.floor(
-    (canvas.width / 2 + offsetX) / GRID_SIZE - selectedTool.size / 2
+    worldCenterX / GRID_SIZE - selectedTool.size / 2
   );
   const gridCenterY = Math.floor(
-    (canvas.height / 2 + offsetY) / GRID_SIZE - selectedTool.size / 2
+    worldCenterY / GRID_SIZE - selectedTool.size / 2
   );
 
   return {
